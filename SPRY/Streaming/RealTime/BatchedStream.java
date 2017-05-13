@@ -31,18 +31,9 @@ public class BatchedStream<T>{
 	protected boolean running = false;
 	protected CountDownLatch barrier = new CountDownLatch(0);
 	protected SPRYEngine<T> engine = null;
-	protected RelativeTime periodForBatchProcessing = null;
-	
-	public void setBatchProcessingDeadlineMissHandler(AsyncEventHandler deadlineMissHanlder){
-		engine.setDeadlineMissHanlder(periodForBatchProcessing, deadlineMissHanlder);
-	}
-	public void setDataIncomingMITViolationHandler(RelativeTime dataMIT, AsyncEventHandler MITViolateHandler){
-		receiver.setMITViolateHandler(dataMIT, MITViolateHandler);
-	}
-	public void setLatencyMissHandler(RelativeTime latency, AsyncEventHandler latencyMissHanlder){
-		LatencyMonitor.addLatencyMissHandler(latency, latencyMissHanlder, this);
-		receiver.setLatencyRecording(true, this);
-	}
+	protected RelativeTime microBatchingTimeout = null;
+	protected RelativeTime dataMIT = null;
+	protected AsyncEventHandler engineDeadlineMissHanlder = null;
 
 	public BatchedStream(RealtimeReceiver<T> receiver, RelativeTime interval, int priority, ReferencePipelineInitialiser<T> initialiser,
 			ProcessingGroup... servers) {
@@ -51,7 +42,7 @@ public class BatchedStream<T>{
 
 	public BatchedStream(RealtimeReceiver<T> receiver, RelativeTime interval, int priority, ReferencePipelineInitialiser<T> initialiser,
 			BitSet affinities, DataAllocationPolicy DAP, int prologueProessor, ProcessingGroup... servers) {
-		this.periodForBatchProcessing = interval;
+		this.microBatchingTimeout = interval;
 		this.receiver = receiver;
 		this.pipeline = new ReusableReferencePipeline<T>(true);
 		initialiser.initialise(pipeline);
@@ -138,6 +129,35 @@ public class BatchedStream<T>{
 				System.out.println("resetNextTimeout failed : " + e.getMessage());
 			}
 		}
+	}
+	
+	public void setBatchProcessingDeadlineMissHandler(AsyncEventHandler deadlineMissHanlder){
+		engineDeadlineMissHanlder = deadlineMissHanlder;
+		if (dataMIT != null) {
+			long batchSize = receiver.getBufferSize();
+			long a = dataMIT.getMilliseconds() * batchSize;
+			long b = microBatchingTimeout.getMilliseconds();
+			long MIT = Math.min(a, b);
+			engine.setDeadlineMissHanlder(new RelativeTime(MIT, 0), deadlineMissHanlder);
+		}
+		engine.setDeadlineMissHanlder(microBatchingTimeout, deadlineMissHanlder);
+	}
+
+	public void setDataIncomingMITViolationHandler(RelativeTime dataMIT, AsyncEventHandler MITViolateHandler) {
+		receiver.setMITViolateHandler(dataMIT, MITViolateHandler);
+		if (engineDeadlineMissHanlder == null)
+			this.dataMIT = dataMIT;
+		else {
+			long batchSize = receiver.getBufferSize();
+			long a = dataMIT.getMilliseconds() * batchSize;
+			long b = microBatchingTimeout.getMilliseconds();
+			if (a < b) engine.setDeadlineMissHanlder(new RelativeTime(a, 0), engineDeadlineMissHanlder);
+		}
+	}
+	
+	public void setLatencyMissHandler(RelativeTime latency, AsyncEventHandler latencyMissHanlder){
+		LatencyMonitor.addLatencyMissHandler(latency, latencyMissHanlder, this);
+		receiver.setLatencyRecording(true, this);
 	}
 	
 	public void awaitForTermination(){
