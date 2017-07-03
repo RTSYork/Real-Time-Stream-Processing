@@ -3,7 +3,7 @@
 ## Server Generation
 An example of using server generation on a two processors platform, which also hosts two hard real-time tasks, is given below:
 
-    		ArrayList<ArrayList<PeriodicTask>> tsOnAllProcessors = new ArrayList<>();
+	ArrayList<ArrayList<PeriodicTask>> tsOnAllProcessors = new ArrayList<>();
     
 		/* hard real-time tasks on processor 0 */
 		ArrayList<PeriodicTask> p0 = new ArrayList<>();
